@@ -24,7 +24,7 @@ const Reader = struct {
 
     const IFace = Interface(struct {
 
-        // Our read requires a single non optional, non-const read function.
+        // Our interface requires a single non optional, non-const read function.
         read: fn (*SelfType, buf: []u8) ReadError!usize,
 
     }, interface.Storage.NonOwning); // This is a non owning interface, similar to Rust dyn traits.
@@ -79,4 +79,4 @@ test "Use our reader interface!" {
 
 ```
 
-See exampls.zig for more examples.
+See examples.zig for more examples.
