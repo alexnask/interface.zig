@@ -1,5 +1,5 @@
-# Zig Interface implementation
-Easy solution for all your zig-related dynamic dispatch needs!
+# Zig Interfaces
+Easy solution for all your zig dynamic dispatch needs!
 
 ## Features
 - Fully decoupled interfaces and implementations
