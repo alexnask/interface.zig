@@ -109,7 +109,7 @@ test "Simple NonOwning interface" {
 
                 state: usize,
 
-                fn foo(self: *Self) usize {
+                pub fn foo(self: *Self) usize {
                     const tmp = self.state;
                     self.state += 1;
                     return tmp;
@@ -139,7 +139,7 @@ test "Comptime only interface" {
 
         state: u8,
 
-        fn foo(self: Self, a: u8) u8 {
+        pub fn foo(self: Self, a: u8) u8 {
             return self.state + a;
         }
     };
@@ -161,13 +161,13 @@ test "Owning interface with optional function" {
 
                 state: usize,
 
-                fn someFn(self: Self, a: usize, b: usize) usize {
+                pub fn someFn(self: Self, a: usize, b: usize) usize {
                     return self.state * a + b;
                 }
 
                 // Note that our return type need only coerce to the virtual function's
                 // return type.
-                fn otherFn(self: *Self, new_state: usize) void {
+                pub fn otherFn(self: *Self, new_state: usize) void {
                     self.state = new_state;
                 }
             };
@@ -187,7 +187,7 @@ test "Interface with virtual async function implemented by an async function" {
     const AsyncIFace = Interface(struct {
         const async_call_stack_size = 1024;
 
-        foo: async fn (*SelfType) void,
+        foo: fn (*SelfType) callconv(.Async) void,
     }, interface.Storage.NonOwning);
 
     const Impl = struct {
@@ -196,7 +196,7 @@ test "Interface with virtual async function implemented by an async function" {
         state: usize,
         frame: anyframe = undefined,
 
-        fn foo(self: *Self) void {
+        pub fn foo(self: *Self) void {
             suspend {
                 self.frame = @frame();
             }
@@ -219,13 +219,13 @@ test "Interface with virtual async function implemented by an async function" {
 
 test "Interface with virtual async function implemented by a blocking function" {
     const AsyncIFace = Interface(struct {
-        readBytes: async fn (*SelfType, []u8) anyerror!void,
+        readBytes: fn (*SelfType, []u8) callconv(.Async) anyerror!void,
     }, interface.Storage.Inline(8));
 
     const Impl = struct {
         const Self = @This();
 
-        fn readBytes(self: Self, outBuf: []u8) void {
+        pub fn readBytes(self: Self, outBuf: []u8) void {
             for (outBuf) |*c| {
                 c.* = 3;
             }
