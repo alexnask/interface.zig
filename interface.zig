@@ -220,11 +220,13 @@ fn makeCall(
 ) Return {
     const is_const = CurrSelfType == *const SelfType;
     const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
-    const fptr = @field(self, name);
+    const fptr = @field(ImplT, name);
+    const first_arg_ptr = comptime std.meta.trait.is(.Pointer)(@typeInfo(@TypeOf(fptr)).Fn.args[0].arg_type.?);
+    const self_arg = if (first_arg_ptr) .{self} else .{self.*};
 
     return switch (call_type) {
-        .BothBlocking => @call(.{ .modifier = .always_inline }, fptr, args),
-        .AsyncCallsBlocking, .BothAsync => await @call(.{ .modifier = .async_kw }, fptr, args),
+        .BothBlocking => @call(.{ .modifier = .always_inline }, fptr, self_arg ++ args),
+        .AsyncCallsBlocking, .BothAsync => await @call(.{ .modifier = .async_kw }, fptr, self_arg ++ args),
         .BlockingCallsAsync => @compileError("Trying to implement blocking virtual function " ++ name ++ " with async implementation."),
     };
 }
