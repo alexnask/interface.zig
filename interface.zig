@@ -86,7 +86,6 @@ pub const Storage = struct {
     pub const Owning = struct {
         allocator: *mem.Allocator,
         mem: []u8,
-        alignment: u29,
 
         pub fn init(args: var) !Owning {
             if (args.len != 2) {
@@ -101,7 +100,6 @@ pub const Storage = struct {
             return Owning{
                 .allocator = args[1],
                 .mem = std.mem.asBytes(obj)[0..],
-                .alignment = @alignOf(AllocT),
             };
         }
 
@@ -110,11 +108,8 @@ pub const Storage = struct {
         }
 
         pub fn deinit(self: Owning) void {
-            // We manually call into the allocator's shrink function.
-            // 'destroy' and 'shrink' just use the pointer type to get alignment,
-            // while  'alignedShrink' requires a comptime alignment.
-            const result = self.allocator.shrinkFn(self.allocator, self.mem, self.alignment, 0, 1);
-            assert(result.len == 0);
+            const result = self.allocator.shrinkBytes(self.mem, 0, 0);
+            assert(result == 0);
         }
     };
 
@@ -464,15 +459,7 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
                 return @call(.{}, fn_ptr, new_args ++ args);
             } else {
                 var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
-                // For now, only work for for zero arg functions
-                if (args.len != 0 and args.len != 1) {
-                    @compileError("TODO: @asyncCall should take an argument tuple pack instead of varargs (see #4621)");
-                }
-
-                if (args.len == 0)
-                    return await @asyncCall(&stack_frame, {}, fn_ptr, self_ptr);
-
-                return await @asyncCall(&stack_frame, {}, fn_ptr, self_ptr, args[0]);
+                return await @asyncCall(&stack_frame, {}, fn_ptr, new_args ++ args);
             }
         }
 
