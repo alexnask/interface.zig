@@ -8,7 +8,7 @@ const expectEqual = std.testing.expectEqual;
 
 pub const SelfType = @OpaqueType();
 
-fn makeSelfPtr(ptr: var) *SelfType {
+fn makeSelfPtr(ptr: anytype) *SelfType {
     if (comptime !trait.isSingleItemPtr(@TypeOf(ptr))) {
         @compileError("SelfType pointer initialization expects pointer parameter.");
     }
@@ -43,7 +43,7 @@ pub const Storage = struct {
         erased_ptr: *SelfType,
         ImplType: type,
 
-        pub fn init(args: var) !Comptime {
+        pub fn init(args: anytype) !Comptime {
             if (args.len != 1) {
                 @compileError("Comptime storage expected a 1-tuple in initialization.");
             }
@@ -66,7 +66,7 @@ pub const Storage = struct {
     pub const NonOwning = struct {
         erased_ptr: *SelfType,
 
-        pub fn init(args: var) !NonOwning {
+        pub fn init(args: anytype) !NonOwning {
             if (args.len != 1) {
                 @compileError("NonOwning storage expected a 1-tuple in initialization.");
             }
@@ -87,7 +87,7 @@ pub const Storage = struct {
         allocator: *mem.Allocator,
         mem: []u8,
 
-        pub fn init(args: var) !Owning {
+        pub fn init(args: anytype) !Owning {
             if (args.len != 2) {
                 @compileError("Owning storage expected a 2-tuple in initialization.");
             }
@@ -108,7 +108,7 @@ pub const Storage = struct {
         }
 
         pub fn deinit(self: Owning) void {
-            const result = self.allocator.shrinkBytes(self.mem, 0, 0);
+            const result = self.allocator.shrinkBytes(self.mem, 0, 0, 0, 0);
             assert(result == 0);
         }
     };
@@ -119,7 +119,7 @@ pub const Storage = struct {
 
             mem: [size]u8,
 
-            pub fn init(args: var) !Self {
+            pub fn init(args: anytype) !Self {
                 if (args.len != 1) {
                     @compileError("Inline storage expected a 1-tuple in initialization.");
                 }
@@ -155,7 +155,7 @@ pub const Storage = struct {
                 Owning: Owning,
             },
 
-            pub fn init(args: var) !Self {
+            pub fn init(args: anytype) !Self {
                 if (args.len != 2) {
                     @compileError("InlineOrOwning storage expected a 2-tuple in initialization.");
                 }
@@ -216,7 +216,7 @@ fn makeCall(
     comptime ImplT: type,
     comptime call_type: GenCallType,
     self_ptr: CurrSelfType,
-    args: var,
+    args: anytype,
 ) Return {
     const is_const = CurrSelfType == *const SelfType;
     const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
@@ -427,7 +427,7 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
 
         const Self = @This();
 
-        pub fn init(args: var) !Self {
+        pub fn init(args: anytype) !Self {
             const ImplType = PtrChildOrSelf(@TypeOf(args.@"0"));
 
             return Self{
@@ -436,14 +436,14 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
             };
         }
 
-        pub fn initWithVTable(vtable_ptr: *const VTableT, args: var) !Self {
+        pub fn initWithVTable(vtable_ptr: *const VTableT, args: anytype) !Self {
             return .{
                 .vtable_ptr = vtable_ptr,
                 .storage = try StorageT.init(args),
             };
         }
 
-        pub fn call(self: var, comptime name: []const u8, args: var) VTableReturnType(VTableT, name) {
+        pub fn call(self: anytype, comptime name: []const u8, args: anytype) VTableReturnType(VTableT, name) {
             comptime var is_optional = true;
             comptime var is_async = true;
             comptime assert(vtableHasMethod(VTableT, name, &is_optional, &is_async));
