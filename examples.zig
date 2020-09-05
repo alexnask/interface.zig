@@ -27,7 +27,7 @@ test "Simple NonOwning interface" {
             };
 
             var f = TestFooer{ .state = 42 };
-            var fooer = try Fooer.init(.{&f});
+            var fooer = try Fooer.init(&f);
             defer fooer.deinit();
 
             expectEqual(@as(usize, 42), fooer.call("foo", .{}));
@@ -40,6 +40,7 @@ test "Simple NonOwning interface" {
 }
 
 test "Comptime only interface" {
+    // return error.SkipZigTest;
     const TestIFace = Interface(struct {
         foo: fn (*SelfType, u8) u8,
     }, interface.Storage.Comptime);
@@ -54,7 +55,7 @@ test "Comptime only interface" {
         }
     };
 
-    comptime var iface = try TestIFace.init(.{TestType{ .state = 0 }});
+    comptime var iface = try TestIFace.init(TestType{ .state = 0 });
     expectEqual(@as(u8, 42), iface.call("foo", .{42}));
 }
 
@@ -82,7 +83,7 @@ test "Owning interface with optional function" {
                 }
             };
 
-            var iface_instance = try TestOwningIface.init(.{ comptime TestStruct{ .state = 0 }, std.testing.allocator });
+            var iface_instance = try TestOwningIface.init(comptime TestStruct{ .state = 0 }, std.testing.allocator);
             defer iface_instance.deinit();
 
             try iface_instance.call("otherFn", .{100});
@@ -117,7 +118,7 @@ test "Interface with virtual async function implemented by an async function" {
     };
 
     var i = Impl{ .state = 0 };
-    var instance = try AsyncIFace.init(.{&i});
+    var instance = try AsyncIFace.init(&i);
     _ = async instance.call("foo", .{});
 
     expectEqual(@as(usize, 0), i.state);
@@ -142,7 +143,7 @@ test "Interface with virtual async function implemented by a blocking function" 
         }
     };
 
-    var instance = try AsyncIFace.init(.{Impl{}});
+    var instance = try AsyncIFace.init(Impl{});
 
     var buf: [256]u8 = undefined;
     try await async instance.call("readBytes", .{buf[0..]});
