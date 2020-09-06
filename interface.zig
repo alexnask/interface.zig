@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-pub const SelfType = @OpaqueType();
+pub const SelfType = @Type(.Opaque);
 
 fn makeSelfPtr(ptr: anytype) *SelfType {
     if (comptime !trait.isSingleItemPtr(@TypeOf(ptr))) {
@@ -43,16 +43,21 @@ pub const Storage = struct {
         erased_ptr: *SelfType,
         ImplType: type,
 
-        pub fn init(args: anytype) !Comptime {
-            if (args.len != 1) {
-                @compileError("Comptime storage expected a 1-tuple in initialization.");
-            }
+        fn makeInit(comptime TInterface: type) type {
+            return struct {
+                fn init(obj: anytype) !TInterface {
+                    const ImplType = PtrChildOrSelf(@TypeOf(obj));
 
-            var obj = args[0];
+                    comptime var obj_holder = obj;
 
-            return Comptime{
-                .erased_ptr = makeSelfPtr(&obj),
-                .ImplType = @TypeOf(args[0]),
+                    return TInterface{
+                        .vtable_ptr = &comptime makeVTable(TInterface.VTable, ImplType),
+                        .storage = Comptime{
+                            .erased_ptr = makeSelfPtr(&obj_holder),
+                            .ImplType = @TypeOf(obj),
+                        },
+                    };
+                }
             };
         }
 
@@ -66,13 +71,16 @@ pub const Storage = struct {
     pub const NonOwning = struct {
         erased_ptr: *SelfType,
 
-        pub fn init(args: anytype) !NonOwning {
-            if (args.len != 1) {
-                @compileError("NonOwning storage expected a 1-tuple in initialization.");
-            }
-
-            return NonOwning{
-                .erased_ptr = makeSelfPtr(args[0]),
+        fn makeInit(comptime TInterface: type) type {
+            return struct {
+                fn init(ptr: anytype) !TInterface {
+                    return TInterface{
+                        .vtable_ptr = &comptime makeVTable(TInterface.VTable, PtrChildOrSelf(@TypeOf(ptr))),
+                        .storage = NonOwning{
+                            .erased_ptr = makeSelfPtr(ptr),
+                        },
+                    };
+                }
             };
         }
 
@@ -87,19 +95,22 @@ pub const Storage = struct {
         allocator: *mem.Allocator,
         mem: []u8,
 
-        pub fn init(args: anytype) !Owning {
-            if (args.len != 2) {
-                @compileError("Owning storage expected a 2-tuple in initialization.");
-            }
+        fn makeInit(comptime TInterface: type) type {
+            return struct {
+                fn init(obj: anytype, allocator: *std.mem.Allocator) !TInterface {
+                    const AllocT = @TypeOf(obj);
 
-            const AllocT = @TypeOf(args[0]);
+                    var ptr = try allocator.create(AllocT);
+                    ptr.* = obj;
 
-            var obj = try args[1].create(AllocT);
-            obj.* = args[0];
-
-            return Owning{
-                .allocator = args[1],
-                .mem = std.mem.asBytes(obj)[0..],
+                    return TInterface{
+                        .vtable_ptr = &comptime makeVTable(TInterface.VTable, PtrChildOrSelf(AllocT)),
+                        .storage = Owning{
+                            .allocator = allocator,
+                            .mem = std.mem.asBytes(ptr)[0..],
+                        },
+                    };
+                }
             };
         }
 
@@ -119,23 +130,28 @@ pub const Storage = struct {
 
             mem: [size]u8,
 
-            pub fn init(args: anytype) !Self {
-                if (args.len != 1) {
-                    @compileError("Inline storage expected a 1-tuple in initialization.");
-                }
+            fn makeInit(comptime TInterface: type) type {
+                return struct {
+                    fn init(value: anytype) !TInterface {
+                        const ImplSize = @sizeOf(@TypeOf(value));
 
-                const ImplSize = @sizeOf(@TypeOf(args[0]));
+                        if (ImplSize > size) {
+                            @compileError("Type does not fit in inline storage.");
+                        }
 
-                if (ImplSize > size) {
-                    @compileError("Type does not fit in inline storage.");
-                }
+                        var self = Self{
+                            .mem = undefined,
+                        };
+                        if (ImplSize > 0) {
+                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
+                        }
 
-                var self: Self = undefined;
-
-                if (ImplSize > 0) {
-                    std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
-                }
-                return self;
+                        return TInterface{
+                            .vtable_ptr = &comptime makeVTable(TInterface.VTable, PtrChildOrSelf(@TypeOf(value))),
+                            .storage = self,
+                        };
+                    }
+                };
             }
 
             pub fn getSelfPtr(self: *Self) *SelfType {
@@ -426,15 +442,10 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
         storage: StorageT,
 
         const Self = @This();
+        const VTable = VTableT;
+        const Storage = StorageT;
 
-        pub fn init(args: anytype) !Self {
-            const ImplType = PtrChildOrSelf(@TypeOf(args.@"0"));
-
-            return Self{
-                .vtable_ptr = &comptime makeVTable(VTableT, ImplType),
-                .storage = try StorageT.init(args),
-            };
-        }
+        pub const init = StorageT.makeInit(Self).init;
 
         pub fn initWithVTable(vtable_ptr: *const VTableT, args: anytype) !Self {
             return .{
