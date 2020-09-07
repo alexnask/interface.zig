@@ -59,12 +59,13 @@ test "Comptime only interface" {
     expectEqual(@as(u8, 42), iface.call("foo", .{42}));
 }
 
-test "Owning interface with optional function" {
+test "Owning interface with optional function and a non-method function" {
     const OwningOptionalFuncTest = struct {
         fn run() !void {
             const TestOwningIface = Interface(struct {
                 someFn: ?fn (*const SelfType, usize, usize) usize,
                 otherFn: fn (*SelfType, usize) anyerror!void,
+                thirdFn: fn(usize) usize,
             }, interface.Storage.Owning);
 
             const TestStruct = struct {
@@ -81,6 +82,10 @@ test "Owning interface with optional function" {
                 pub fn otherFn(self: *Self, new_state: usize) void {
                     self.state = new_state;
                 }
+
+                pub fn thirdFn(arg: usize) usize {
+                    return arg + 1;
+                }
             };
 
             var iface_instance = try TestOwningIface.init(comptime TestStruct{ .state = 0 }, std.testing.allocator);
@@ -88,6 +93,7 @@ test "Owning interface with optional function" {
 
             try iface_instance.call("otherFn", .{100});
             expectEqual(@as(usize, 42), iface_instance.call("someFn", .{ 0, 42 }).?);
+            expectEqual(@as(usize, 101), iface_instance.call("thirdFn", .{ 100 }));
         }
     };
 

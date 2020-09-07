@@ -259,63 +259,68 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
 
                     if (args.len == 0) {
                         return null;
+                        // @TODO
                     }
 
-                    const arg0_type = args[0].arg_type.?;
-                    if (arg0_type != ImplT and arg0_type != *ImplT and arg0_type != *const ImplT) {
-                        return null;
+                    if (args.len > 0) {
+                        const arg0_type = args[0].arg_type.?;
+                        const is_method = arg0_type == ImplT or arg0_type == *ImplT or arg0_type == *const ImplT;
+
+                        const candidate_cc = @typeInfo(fn_decl.fn_type).Fn.calling_convention;
+                        switch (candidate_cc) {
+                            .Async, .Unspecified => {},
+                            else => return null,
+                        }
+
+                        const Return = @typeInfo(FnT).Fn.return_type orelse noreturn;
+                        const CurrSelfType = @typeInfo(FnT).Fn.args[0].arg_type.?;
+
+                        const call_type: GenCallType = switch (our_cc) {
+                            .Async => if (candidate_cc == .Async) .BothAsync else .AsyncCallsBlocking,
+                            .Unspecified => if (candidate_cc == .Unspecified) .BothBlocking else .BlockingCallsAsync,
+                            else => unreachable,
+                        };
+
+                        if (!is_method) {
+                            return @field(ImplT, name);
+                        }
+
+                        // TODO: Make this less hacky somehow?
+                        // We need some new feature to do so unfortunately.
+                        return switch (args.len) {
+                            1 => struct {
+                                fn impl(self_ptr: CurrSelfType) callconv(our_cc) Return {
+                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{} });
+                                }
+                            }.impl,
+                            2 => struct {
+                                fn impl(self_ptr: CurrSelfType, arg: args[1].arg_type.?) callconv(our_cc) Return {
+                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{arg} });
+                                }
+                            }.impl,
+                            3 => struct {
+                                fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?) callconv(our_cc) Return {
+                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2 } });
+                                }
+                            }.impl,
+                            4 => struct {
+                                fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?) callconv(our_cc) Return {
+                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3 } });
+                                }
+                            }.impl,
+                            5 => struct {
+                                fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?) callconv(our_cc) Return {
+                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4 } });
+                                }
+                            }.impl,
+                            6 => struct {
+                                fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?, arg5: args[5].arg_type.?) callconv(our_cc) Return {
+                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4, arg5 } });
+                                }
+                            }.impl,
+                            else => @compileError("Unsupported number of arguments, please provide a manually written vtable."),
+                        };
                     }
-
-                    const candidate_cc = @typeInfo(fn_decl.fn_type).Fn.calling_convention;
-                    switch (candidate_cc) {
-                        .Async, .Unspecified => {},
-                        else => return null,
-                    }
-
-                    const Return = @typeInfo(FnT).Fn.return_type orelse noreturn;
-                    const CurrSelfType = @typeInfo(FnT).Fn.args[0].arg_type.?;
-
-                    const call_type: GenCallType = switch (our_cc) {
-                        .Async => if (candidate_cc == .Async) .BothAsync else .AsyncCallsBlocking,
-                        .Unspecified => if (candidate_cc == .Unspecified) .BothBlocking else .BlockingCallsAsync,
-                        else => unreachable,
-                    };
-
-                    // TODO: Make this less hacky somehow?
-                    // We need some new feature to do so unfortunately.
-                    return switch (args.len) {
-                        1 => struct {
-                            fn impl(self_ptr: CurrSelfType) callconv(our_cc) Return {
-                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{} });
-                            }
-                        }.impl,
-                        2 => struct {
-                            fn impl(self_ptr: CurrSelfType, arg: args[1].arg_type.?) callconv(our_cc) Return {
-                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{arg} });
-                            }
-                        }.impl,
-                        3 => struct {
-                            fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?) callconv(our_cc) Return {
-                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2 } });
-                            }
-                        }.impl,
-                        4 => struct {
-                            fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?) callconv(our_cc) Return {
-                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3 } });
-                            }
-                        }.impl,
-                        5 => struct {
-                            fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?) callconv(our_cc) Return {
-                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4 } });
-                            }
-                        }.impl,
-                        6 => struct {
-                            fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?, arg5: args[5].arg_type.?) callconv(our_cc) Return {
-                                return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4, arg5 } });
-                            }
-                        }.impl,
-                        else => @compileError("Unsupported number of arguments, please provide a manually written vtable."),
-                    };
                 },
                 else => return null,
             }
@@ -384,23 +389,19 @@ fn checkVtableType(comptime VTableT: type) void {
             .Unspecified, .Async => {},
             else => @compileError("Virtual function's  '" ++ field.name ++ "' calling convention is not default or async."),
         }
-
-        if (type_info.Fn.args.len == 0) {
-            @compileError("Virtual function '" ++ field.name ++ "' must have at least one argument.");
-        }
-
-        const arg_type = type_info.Fn.args[0].arg_type.?;
-        if (arg_type != *SelfType and arg_type != *const SelfType) {
-            @compileError("Virtual function's '" ++ field.name ++ "' first argument must be *SelfType or *const SelfType");
-        }
     }
 }
 
-fn vtableHasMethod(comptime VTableT: type, comptime name: []const u8, is_optional: *bool, is_async: *bool) bool {
+fn vtableHasMethod(comptime VTableT: type, comptime name: []const u8, is_optional: *bool, is_async: *bool, is_method: *bool) bool {
     for (std.meta.fields(VTableT)) |field| {
         if (std.mem.eql(u8, name, field.name)) {
             is_optional.* = trait.is(.Optional)(field.field_type);
-            is_async.* = @typeInfo(if (is_optional.*) std.meta.Child(field.field_type) else field.field_type).Fn.calling_convention == .Async;
+            const fn_typeinfo = @typeInfo(if (is_optional.*) std.meta.Child(field.field_type) else field.field_type).Fn;
+            is_async.* = fn_typeinfo.calling_convention == .Async;
+            is_method.* = fn_typeinfo.args.len > 0 and blk: {
+                const first_arg_type = fn_typeinfo.args[0].arg_type.?;
+                break :blk first_arg_type == *SelfType or first_arg_type == *const SelfType;
+            };
             return true;
         }
     }
@@ -450,14 +451,15 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
         pub fn initWithVTable(vtable_ptr: *const VTableT, args: anytype) !Self {
             return .{
                 .vtable_ptr = vtable_ptr,
-                .storage = try StorageT.init(args),
+                .storage = try init(args),
             };
         }
 
         pub fn call(self: anytype, comptime name: []const u8, args: anytype) VTableReturnType(VTableT, name) {
             comptime var is_optional = true;
             comptime var is_async = true;
-            comptime assert(vtableHasMethod(VTableT, name, &is_optional, &is_async));
+            comptime var is_method = true;
+            comptime assert(vtableHasMethod(VTableT, name, &is_optional, &is_async, &is_method));
 
             const fn_ptr = if (is_optional) blk: {
                 const val = @field(self.vtable_ptr, name);
@@ -465,14 +467,23 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
                 return null;
             } else @field(self.vtable_ptr, name);
 
-            const self_ptr = self.storage.getSelfPtr();
-            const new_args = .{self_ptr};
+            if (is_method) {
+                const self_ptr = self.storage.getSelfPtr();
+                const new_args = .{self_ptr};
 
-            if (!is_async) {
-                return @call(.{}, fn_ptr, new_args ++ args);
+                if (!is_async) {
+                    return @call(.{}, fn_ptr, new_args ++ args);
+                } else {
+                    var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
+                    return await @asyncCall(&stack_frame, {}, fn_ptr, new_args ++ args);
+                }
             } else {
-                var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
-                return await @asyncCall(&stack_frame, {}, fn_ptr, new_args ++ args);
+                if (!is_async) {
+                    return @call(.{}, fn_ptr, args);
+                } else {
+                    var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
+                    return await @asyncCall(&stack_frame, {}, fn_ptr, args);
+                }
             }
         }
 
