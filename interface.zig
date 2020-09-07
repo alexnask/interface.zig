@@ -258,8 +258,7 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
                     const args = @typeInfo(fn_decl.fn_type).Fn.args;
 
                     if (args.len == 0) {
-                        return null;
-                        // @TODO
+                        return @field(ImplT, name);
                     }
 
                     if (args.len > 0) {
