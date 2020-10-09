@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-pub const SelfType = @Type(.Opaque);
+pub const SelfType = opaque{};
 
 fn makeSelfPtr(ptr: anytype) *SelfType {
     if (comptime !trait.isSingleItemPtr(@TypeOf(ptr))) {
