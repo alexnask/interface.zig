@@ -39,6 +39,38 @@ test "Simple NonOwning interface" {
     comptime try NonOwningTest.run();
 }
 
+test "Simple Inline interface with state" {
+    const InlineTest = struct {
+        fn run() !void {
+            const Fooer = Interface(struct {
+                foo: fn (*SelfType) usize,
+            }, interface.Storage.Inline(8));
+
+            const TestFooer = struct {
+                const Self = @This();
+
+                state: usize,
+
+                pub fn foo(self: *Self) usize {
+                    const tmp = self.state;
+                    self.state += 1;
+                    return tmp;
+                }
+            };
+
+            var f = TestFooer{ .state = 42 };
+            var fooer = try Fooer.init(&f);
+            defer fooer.deinit();
+
+            expectEqual(@as(usize, 42), fooer.call("foo", .{}));
+            expectEqual(@as(usize, 43), fooer.call("foo", .{}));
+        }
+    };
+
+    try InlineTest.run();
+//    comptime try InlineTest.run(); // Hits "This is a bug in the Zig compiler." on windows 0.6.0+53c63bdb7 (2020-10-10)
+}
+
 test "Comptime only interface" {
     // return error.SkipZigTest;
     const TestIFace = Interface(struct {
