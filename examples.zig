@@ -65,7 +65,7 @@ test "Owning interface with optional function and a non-method function" {
             const TestOwningIface = Interface(struct {
                 someFn: ?fn (*const SelfType, usize, usize) usize,
                 otherFn: fn (*SelfType, usize) anyerror!void,
-                thirdFn: fn(usize) usize,
+                thirdFn: fn (usize) usize,
             }, interface.Storage.Owning);
 
             const TestStruct = struct {
@@ -93,7 +93,7 @@ test "Owning interface with optional function and a non-method function" {
 
             try iface_instance.call("otherFn", .{100});
             expectEqual(@as(usize, 42), iface_instance.call("someFn", .{ 0, 42 }).?);
-            expectEqual(@as(usize, 101), iface_instance.call("thirdFn", .{ 100 }));
+            expectEqual(@as(usize, 101), iface_instance.call("thirdFn", .{100}));
         }
     };
 
