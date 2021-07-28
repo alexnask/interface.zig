@@ -30,8 +30,8 @@ test "Simple NonOwning interface" {
             var fooer = try Fooer.init(&f);
             defer fooer.deinit();
 
-            expectEqual(@as(usize, 42), fooer.call("foo", .{}));
-            expectEqual(@as(usize, 43), fooer.call("foo", .{}));
+            try expectEqual(@as(usize, 42), fooer.call("foo", .{}));
+            try expectEqual(@as(usize, 43), fooer.call("foo", .{}));
         }
     };
 
@@ -56,7 +56,7 @@ test "Comptime only interface" {
     };
 
     comptime var iface = try TestIFace.init(TestType{ .state = 0 });
-    expectEqual(@as(u8, 42), iface.call("foo", .{42}));
+    try expectEqual(@as(u8, 42), iface.call("foo", .{42}));
 }
 
 test "Owning interface with optional function and a non-method function" {
@@ -65,7 +65,7 @@ test "Owning interface with optional function and a non-method function" {
             const TestOwningIface = Interface(struct {
                 someFn: ?fn (*const SelfType, usize, usize) usize,
                 otherFn: fn (*SelfType, usize) anyerror!void,
-                thirdFn: fn(usize) usize,
+                thirdFn: fn (usize) usize,
             }, interface.Storage.Owning);
 
             const TestStruct = struct {
@@ -92,8 +92,8 @@ test "Owning interface with optional function and a non-method function" {
             defer iface_instance.deinit();
 
             try iface_instance.call("otherFn", .{100});
-            expectEqual(@as(usize, 42), iface_instance.call("someFn", .{ 0, 42 }).?);
-            expectEqual(@as(usize, 101), iface_instance.call("thirdFn", .{ 100 }));
+            try expectEqual(@as(usize, 42), iface_instance.call("someFn", .{ 0, 42 }).?);
+            try expectEqual(@as(usize, 101), iface_instance.call("thirdFn", .{100}));
         }
     };
 
@@ -118,7 +118,7 @@ test "Interface with virtual async function implemented by an async function" {
                 self.frame = @frame();
             }
             self.state += 1;
-            suspend;
+            suspend {}
             self.state += 1;
         }
     };
@@ -127,11 +127,11 @@ test "Interface with virtual async function implemented by an async function" {
     var instance = try AsyncIFace.init(&i);
     _ = async instance.call("foo", .{});
 
-    expectEqual(@as(usize, 0), i.state);
+    try expectEqual(@as(usize, 0), i.state);
     resume i.frame;
-    expectEqual(@as(usize, 1), i.state);
+    try expectEqual(@as(usize, 1), i.state);
     resume i.frame;
-    expectEqual(@as(usize, 2), i.state);
+    try expectEqual(@as(usize, 2), i.state);
 }
 
 test "Interface with virtual async function implemented by a blocking function" {
@@ -143,6 +143,7 @@ test "Interface with virtual async function implemented by a blocking function" 
         const Self = @This();
 
         pub fn readBytes(self: Self, outBuf: []u8) void {
+            _ = self;
             for (outBuf) |*c| {
                 c.* = 3;
             }
@@ -154,5 +155,5 @@ test "Interface with virtual async function implemented by a blocking function" 
     var buf: [256]u8 = undefined;
     try await async instance.call("readBytes", .{buf[0..]});
 
-    expectEqual([_]u8{3} ** 256, buf);
+    try expectEqual([_]u8{3} ** 256, buf);
 }
