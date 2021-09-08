@@ -65,7 +65,7 @@ pub const Storage = struct {
             return self.erased_ptr;
         }
 
-        pub fn deinit(comptime self: Comptime) void {}
+        pub fn deinit(comptime _: Comptime) void {}
     };
 
     pub const NonOwning = struct {
@@ -88,7 +88,7 @@ pub const Storage = struct {
             return self.erased_ptr;
         }
 
-        pub fn deinit(self: NonOwning) void {}
+        pub fn deinit(_: NonOwning) void {}
     };
 
     pub const Owning = struct {
@@ -143,7 +143,7 @@ pub const Storage = struct {
                             .mem = undefined,
                         };
                         if (ImplSize > 0) {
-                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
+                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &value)[0..ImplSize]);
                         }
 
                         return TInterface{
@@ -158,7 +158,7 @@ pub const Storage = struct {
                 return makeSelfPtr(&self.mem[0]);
             }
 
-            pub fn deinit(self: Self) void {}
+            pub fn deinit(_: Self) void {}
         };
     }
 
