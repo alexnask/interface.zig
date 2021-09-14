@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-pub const SelfType = opaque{};
+pub const SelfType = opaque {};
 
 fn makeSelfPtr(ptr: anytype) *SelfType {
     if (comptime !trait.isSingleItemPtr(@TypeOf(ptr))) {
@@ -65,7 +65,9 @@ pub const Storage = struct {
             return self.erased_ptr;
         }
 
-        pub fn deinit(comptime self: Comptime) void {}
+        pub fn deinit(comptime self: Comptime) void {
+            _ = self;
+        }
     };
 
     pub const NonOwning = struct {
@@ -88,7 +90,9 @@ pub const Storage = struct {
             return self.erased_ptr;
         }
 
-        pub fn deinit(self: NonOwning) void {}
+        pub fn deinit(self: NonOwning) void {
+            _ = self;
+        }
     };
 
     pub const Owning = struct {
@@ -143,7 +147,7 @@ pub const Storage = struct {
                             .mem = undefined,
                         };
                         if (ImplSize > 0) {
-                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
+                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &value)[0..ImplSize]);
                         }
 
                         return TInterface{
@@ -158,7 +162,9 @@ pub const Storage = struct {
                 return makeSelfPtr(&self.mem[0]);
             }
 
-            pub fn deinit(self: Self) void {}
+            pub fn deinit(self: Self) void {
+                _ = self;
+            }
         };
     }
 
