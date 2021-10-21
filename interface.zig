@@ -147,7 +147,7 @@ pub const Storage = struct {
                             .mem = undefined,
                         };
                         if (ImplSize > 0) {
-                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
+                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &value)[0..ImplSize]);
                         }
 
                         return TInterface{
