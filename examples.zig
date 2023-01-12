@@ -11,7 +11,7 @@ test "Simple NonOwning interface" {
     const NonOwningTest = struct {
         fn run() !void {
             const Fooer = Interface(struct {
-                foo: fn (*SelfType) usize,
+                foo: *const fn (*SelfType) usize,
             }, interface.Storage.NonOwning);
 
             const TestFooer = struct {
@@ -42,7 +42,7 @@ test "Simple NonOwning interface" {
 test "Comptime only interface" {
     // return error.SkipZigTest;
     const TestIFace = Interface(struct {
-        foo: fn (*SelfType, u8) u8,
+        foo: *const fn (*SelfType, u8) u8,
     }, interface.Storage.Comptime);
 
     const TestType = struct {
@@ -63,9 +63,9 @@ test "Owning interface with optional function and a non-method function" {
     const OwningOptionalFuncTest = struct {
         fn run() !void {
             const TestOwningIface = Interface(struct {
-                someFn: ?fn (*const SelfType, usize, usize) usize,
-                otherFn: fn (*SelfType, usize) anyerror!void,
-                thirdFn: fn (usize) usize,
+                someFn: ?*const fn (*const SelfType, usize, usize) usize,
+                otherFn: *const fn (*SelfType, usize) anyerror!void,
+                thirdFn: *const fn (usize) usize,
             }, interface.Storage.Owning);
 
             const TestStruct = struct {
@@ -100,60 +100,62 @@ test "Owning interface with optional function and a non-method function" {
     try OwningOptionalFuncTest.run();
 }
 
-test "Interface with virtual async function implemented by an async function" {
-    const AsyncIFace = Interface(struct {
-        const async_call_stack_size = 1024;
+// TODO: Include async tests when async is implemented in stage2!
 
-        foo: fn (*SelfType) callconv(.Async) void,
-    }, interface.Storage.NonOwning);
+// test "Interface with virtual async function implemented by an async function" {
+//     const AsyncIFace = Interface(struct {
+//         const async_call_stack_size = 1024;
 
-    const Impl = struct {
-        const Self = @This();
+//         foo: *const fn (*SelfType) callconv(.Async) void,
+//     }, interface.Storage.NonOwning);
 
-        state: usize,
-        frame: anyframe = undefined,
+//     const Impl = struct {
+//         const Self = @This();
 
-        pub fn foo(self: *Self) void {
-            suspend {
-                self.frame = @frame();
-            }
-            self.state += 1;
-            suspend {}
-            self.state += 1;
-        }
-    };
+//         state: usize,
+//         frame: anyframe = undefined,
 
-    var i = Impl{ .state = 0 };
-    var instance = try AsyncIFace.init(&i);
-    _ = async instance.call("foo", .{});
+//         pub fn foo(self: *Self) void {
+//             suspend {
+//                 self.frame = @frame();
+//             }
+//             self.state += 1;
+//             suspend {}
+//             self.state += 1;
+//         }
+//     };
 
-    try expectEqual(@as(usize, 0), i.state);
-    resume i.frame;
-    try expectEqual(@as(usize, 1), i.state);
-    resume i.frame;
-    try expectEqual(@as(usize, 2), i.state);
-}
+//     var i = Impl{ .state = 0 };
+//     var instance = try AsyncIFace.init(&i);
+//     _ = async instance.call("foo", .{});
 
-test "Interface with virtual async function implemented by a blocking function" {
-    const AsyncIFace = Interface(struct {
-        readBytes: fn (*SelfType, []u8) callconv(.Async) anyerror!void,
-    }, interface.Storage.Inline(8));
+//     try expectEqual(@as(usize, 0), i.state);
+//     resume i.frame;
+//     try expectEqual(@as(usize, 1), i.state);
+//     resume i.frame;
+//     try expectEqual(@as(usize, 2), i.state);
+// }
 
-    const Impl = struct {
-        const Self = @This();
+// test "Interface with virtual async function implemented by a blocking function" {
+//     const AsyncIFace = Interface(struct {
+//         readBytes: *const fn (*SelfType, []u8) callconv(.Async) anyerror!void,
+//     }, interface.Storage.Inline(8));
 
-        pub fn readBytes(self: Self, outBuf: []u8) void {
-            _ = self;
-            for (outBuf) |*c| {
-                c.* = 3;
-            }
-        }
-    };
+//     const Impl = struct {
+//         const Self = @This();
 
-    var instance = try AsyncIFace.init(Impl{});
+//         pub fn readBytes(self: Self, outBuf: []u8) void {
+//             _ = self;
+//             for (outBuf) |*c| {
+//                 c.* = 3;
+//             }
+//         }
+//     };
 
-    var buf: [256]u8 = undefined;
-    try await async instance.call("readBytes", .{buf[0..]});
+//     var instance = try AsyncIFace.init(Impl{});
 
-    try expectEqual([_]u8{3} ** 256, buf);
-}
+//     var buf: [256]u8 = undefined;
+//     try await async instance.call("readBytes", .{buf[0..]});
+
+//     try expectEqual([_]u8{3} ** 256, buf);
+// }
