@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-pub const SelfType = opaque{};
+pub const SelfType = opaque {};
 
 fn makeSelfPtr(ptr: anytype) *SelfType {
     if (comptime !trait.isSingleItemPtr(@TypeOf(ptr))) {
@@ -16,7 +16,7 @@ fn makeSelfPtr(ptr: anytype) *SelfType {
     const T = std.meta.Child(@TypeOf(ptr));
 
     if (@sizeOf(T) > 0) {
-        return @ptrCast(*SelfType, ptr);
+        return @ptrCast(ptr);
     } else {
         return undefined;
     }
@@ -24,7 +24,7 @@ fn makeSelfPtr(ptr: anytype) *SelfType {
 
 fn selfPtrAs(self: *SelfType, comptime T: type) *T {
     if (@sizeOf(T) > 0) {
-        return @alignCast(@alignOf(T), @ptrCast(*align(1) T, self));
+        return @alignCast(@ptrCast(self));
     } else {
         return undefined;
     }
@@ -32,7 +32,7 @@ fn selfPtrAs(self: *SelfType, comptime T: type) *T {
 
 fn constSelfPtrAs(self: *const SelfType, comptime T: type) *const T {
     if (@sizeOf(T) > 0) {
-        return @alignCast(@alignOf(T), @ptrCast(*align(1) const T, self));
+        return @alignCast(@ptrCast(self));
     } else {
         return undefined;
     }
@@ -45,7 +45,7 @@ pub const Storage = struct {
 
         fn makeInit(comptime TInterface: type) type {
             return struct {
-                fn init(obj: anytype) !TInterface {
+                fn init(comptime obj: anytype) !TInterface {
                     const ImplType = PtrChildOrSelf(@TypeOf(obj));
 
                     comptime var obj_holder = obj;
@@ -65,7 +65,9 @@ pub const Storage = struct {
             return self.erased_ptr;
         }
 
-        pub fn deinit(comptime self: Comptime) void {}
+        pub fn deinit(comptime self: Comptime) void {
+            _ = self;
+        }
     };
 
     pub const NonOwning = struct {
@@ -88,26 +90,38 @@ pub const Storage = struct {
             return self.erased_ptr;
         }
 
-        pub fn deinit(self: NonOwning) void {}
+        pub fn deinit(self: NonOwning) void {
+            _ = self;
+        }
     };
 
     pub const Owning = struct {
-        allocator: *mem.Allocator,
+        allocator: mem.Allocator,
         mem: []u8,
+        alignment_log2: u8,
 
         fn makeInit(comptime TInterface: type) type {
             return struct {
-                fn init(obj: anytype, allocator: *std.mem.Allocator) !TInterface {
+                fn init(obj: anytype, allocator: std.mem.Allocator) error{OutOfMemory}!TInterface {
                     const AllocT = @TypeOf(obj);
 
-                    var ptr = try allocator.create(AllocT);
+                    const t_align = @alignOf(AllocT);
+                    const t_align_log2 = std.math.log2(t_align);
+
+                    const base = allocator.rawAlloc(@sizeOf(AllocT), t_align_log2, @returnAddress()) orelse return error.OutOfMemory;
+
+                    const slice = base[0..@sizeOf(AllocT)];
+                    errdefer allocator.rawFree(slice, t_align_log2, @returnAddress());
+
+                    var ptr: *AllocT = @ptrCast(@alignCast(base));
                     ptr.* = obj;
 
                     return TInterface{
                         .vtable_ptr = &comptime makeVTable(TInterface.VTable, PtrChildOrSelf(AllocT)),
                         .storage = Owning{
                             .allocator = allocator,
-                            .mem = std.mem.asBytes(ptr)[0..],
+                            .mem = slice,
+                            .alignment_log2 = t_align_log2,
                         },
                     };
                 }
@@ -119,8 +133,7 @@ pub const Storage = struct {
         }
 
         pub fn deinit(self: Owning) void {
-            const result = self.allocator.shrinkBytes(self.mem, 0, 0, 0, 0);
-            assert(result == 0);
+            self.allocator.rawFree(self.mem, self.alignment_log2, @returnAddress());
         }
     };
 
@@ -143,7 +156,7 @@ pub const Storage = struct {
                             .mem = undefined,
                         };
                         if (ImplSize > 0) {
-                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &args[0])[0..ImplSize]);
+                            std.mem.copy(u8, self.mem[0..], @as([*]const u8, @ptrCast(&value))[0..ImplSize]);
                         }
 
                         return TInterface{
@@ -158,7 +171,9 @@ pub const Storage = struct {
                 return makeSelfPtr(&self.mem[0]);
             }
 
-            pub fn deinit(self: Self) void {}
+            pub fn deinit(self: Self) void {
+                _ = self;
+            }
         };
     }
 
@@ -237,12 +252,12 @@ fn makeCall(
     const is_const = CurrSelfType == *const SelfType;
     const self = if (is_const) constSelfPtrAs(self_ptr, ImplT) else selfPtrAs(self_ptr, ImplT);
     const fptr = @field(ImplT, name);
-    const first_arg_ptr = comptime std.meta.trait.is(.Pointer)(@typeInfo(@TypeOf(fptr)).Fn.args[0].arg_type.?);
+    const first_arg_ptr = comptime std.meta.trait.is(.Pointer)(@typeInfo(@TypeOf(fptr)).Fn.params[0].type.?);
     const self_arg = if (first_arg_ptr) .{self} else .{self.*};
 
     return switch (call_type) {
-        .BothBlocking => @call(.{ .modifier = .always_inline }, fptr, self_arg ++ args),
-        .AsyncCallsBlocking, .BothAsync => await @call(.{ .modifier = .async_kw }, fptr, self_arg ++ args),
+        .BothBlocking => @call(.always_inline, fptr, self_arg ++ args),
+        .AsyncCallsBlocking, .BothAsync => await @call(.async_kw, fptr, self_arg ++ args),
         .BlockingCallsAsync => @compileError("Trying to implement blocking virtual function " ++ name ++ " with async implementation."),
     };
 }
@@ -253,26 +268,27 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
     // Find the candidate in the implementation type.
     for (std.meta.declarations(ImplT)) |decl| {
         if (std.mem.eql(u8, name, decl.name)) {
-            switch (decl.data) {
-                .Fn => |fn_decl| {
-                    const args = @typeInfo(fn_decl.fn_type).Fn.args;
+            const data = @field(ImplT, decl.name);
+            switch (@typeInfo(@TypeOf(data))) {
+                .Fn => |fn_type| {
+                    const args = fn_type.params;
 
                     if (args.len == 0) {
                         return @field(ImplT, name);
                     }
 
                     if (args.len > 0) {
-                        const arg0_type = args[0].arg_type.?;
+                        const arg0_type = args[0].type.?;
                         const is_method = arg0_type == ImplT or arg0_type == *ImplT or arg0_type == *const ImplT;
 
-                        const candidate_cc = @typeInfo(fn_decl.fn_type).Fn.calling_convention;
+                        const candidate_cc = fn_type.calling_convention;
                         switch (candidate_cc) {
                             .Async, .Unspecified => {},
                             else => return null,
                         }
 
                         const Return = @typeInfo(FnT).Fn.return_type orelse noreturn;
-                        const CurrSelfType = @typeInfo(FnT).Fn.args[0].arg_type.?;
+                        const CurrSelfType = @typeInfo(FnT).Fn.params[0].type.?;
 
                         const call_type: GenCallType = switch (our_cc) {
                             .Async => if (candidate_cc == .Async) .BothAsync else .AsyncCallsBlocking,
@@ -289,32 +305,32 @@ fn getFunctionFromImpl(comptime name: []const u8, comptime FnT: type, comptime I
                         return switch (args.len) {
                             1 => struct {
                                 fn impl(self_ptr: CurrSelfType) callconv(our_cc) Return {
-                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{} });
+                                    return @call(.always_inline, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{} });
                                 }
                             }.impl,
                             2 => struct {
-                                fn impl(self_ptr: CurrSelfType, arg: args[1].arg_type.?) callconv(our_cc) Return {
-                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{arg} });
+                                fn impl(self_ptr: CurrSelfType, arg: args[1].type.?) callconv(our_cc) Return {
+                                    return @call(.always_inline, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{arg} });
                                 }
                             }.impl,
                             3 => struct {
-                                fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?) callconv(our_cc) Return {
-                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2 } });
+                                fn impl(self_ptr: CurrSelfType, arg1: args[1].type.?, arg2: args[2].type.?) callconv(our_cc) Return {
+                                    return @call(.always_inline, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2 } });
                                 }
                             }.impl,
                             4 => struct {
-                                fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?) callconv(our_cc) Return {
-                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3 } });
+                                fn impl(self_ptr: CurrSelfType, arg1: args[1].type.?, arg2: args[2].type.?, arg3: args[3].type.?) callconv(our_cc) Return {
+                                    return @call(.always_inline, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3 } });
                                 }
                             }.impl,
                             5 => struct {
-                                fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?) callconv(our_cc) Return {
-                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4 } });
+                                fn impl(self_ptr: CurrSelfType, arg1: args[1].type.?, arg2: args[2].type.?, arg3: args[3].type.?, arg4: args[4].type.?) callconv(our_cc) Return {
+                                    return @call(.always_inline, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4 } });
                                 }
                             }.impl,
                             6 => struct {
-                                fn impl(self_ptr: CurrSelfType, arg1: args[1].arg_type.?, arg2: args[2].arg_type.?, arg3: args[3].arg_type.?, arg4: args[4].arg_type.?, arg5: args[5].arg_type.?) callconv(our_cc) Return {
-                                    return @call(.{ .modifier = .always_inline }, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4, arg5 } });
+                                fn impl(self_ptr: CurrSelfType, arg1: args[1].type.?, arg2: args[2].type.?, arg3: args[3].type.?, arg4: args[4].type.?, arg5: args[5].type.?) callconv(our_cc) Return {
+                                    return @call(.always_inline, makeCall, .{ name, CurrSelfType, Return, ImplT, call_type, self_ptr, .{ arg1, arg2, arg3, arg4, arg5 } });
                                 }
                             }.impl,
                             else => @compileError("Unsupported number of arguments, please provide a manually written vtable."),
@@ -336,11 +352,14 @@ fn makeVTable(comptime VTableT: type, comptime ImplT: type) VTableT {
     var vtable: VTableT = undefined;
 
     for (std.meta.fields(VTableT)) |field| {
-        var fn_type = field.field_type;
+        var fn_type = field.type;
         const is_optional = trait.is(.Optional)(fn_type);
         if (is_optional) {
             fn_type = std.meta.Child(fn_type);
         }
+
+        // Erase the function pointer type
+        fn_type = std.meta.Child(fn_type);
 
         const candidate = comptime getFunctionFromImpl(field.name, fn_type, ImplT);
         if (candidate == null and !is_optional) {
@@ -348,7 +367,11 @@ fn makeVTable(comptime VTableT: type, comptime ImplT: type) VTableT {
         } else if (!is_optional) {
             @field(vtable, field.name) = candidate.?;
         } else {
-            @field(vtable, field.name) = candidate;
+            if (candidate) |c| {
+                @field(vtable, field.name) = c;
+            } else {
+                @field(vtable, field.name) = null;
+            }
         }
     }
 
@@ -368,9 +391,13 @@ fn checkVtableType(comptime VTableT: type) void {
     }
 
     for (std.meta.fields(VTableT)) |field| {
-        var field_type = field.field_type;
+        var field_type = field.type;
 
         if (trait.is(.Optional)(field_type)) {
+            field_type = std.meta.Child(field_type);
+        }
+
+        if (trait.is(.Pointer)(field_type)) {
             field_type = std.meta.Child(field_type);
         }
 
@@ -394,11 +421,11 @@ fn checkVtableType(comptime VTableT: type) void {
 fn vtableHasMethod(comptime VTableT: type, comptime name: []const u8, is_optional: *bool, is_async: *bool, is_method: *bool) bool {
     for (std.meta.fields(VTableT)) |field| {
         if (std.mem.eql(u8, name, field.name)) {
-            is_optional.* = trait.is(.Optional)(field.field_type);
-            const fn_typeinfo = @typeInfo(if (is_optional.*) std.meta.Child(field.field_type) else field.field_type).Fn;
+            is_optional.* = trait.is(.Optional)(field.type);
+            const fn_typeinfo = @typeInfo(std.meta.Child(if (is_optional.*) std.meta.Child(field.type) else field.type)).Fn;
             is_async.* = fn_typeinfo.calling_convention == .Async;
-            is_method.* = fn_typeinfo.args.len > 0 and blk: {
-                const first_arg_type = fn_typeinfo.args[0].arg_type.?;
+            is_method.* = fn_typeinfo.params.len > 0 and blk: {
+                const first_arg_type = fn_typeinfo.params[0].type.?;
                 break :blk first_arg_type == *SelfType or first_arg_type == *const SelfType;
             };
             return true;
@@ -411,12 +438,12 @@ fn vtableHasMethod(comptime VTableT: type, comptime name: []const u8, is_optiona
 fn VTableReturnType(comptime VTableT: type, comptime name: []const u8) type {
     for (std.meta.fields(VTableT)) |field| {
         if (std.mem.eql(u8, name, field.name)) {
-            const is_optional = trait.is(.Optional)(field.field_type);
+            const is_optional = trait.is(.Optional)(field.type);
 
             var fn_ret_type = (if (is_optional)
-                @typeInfo(std.meta.Child(field.field_type)).Fn.return_type
+                @typeInfo(std.meta.Child(std.meta.Child(field.type))).Fn.return_type
             else
-                @typeInfo(field.field_type).Fn.return_type) orelse noreturn;
+                @typeInfo(std.meta.Child(field.type)).Fn.return_type) orelse noreturn;
 
             if (is_optional) {
                 return ?fn_ret_type;
@@ -471,14 +498,14 @@ pub fn Interface(comptime VTableT: type, comptime StorageT: type) type {
                 const new_args = .{self_ptr};
 
                 if (!is_async) {
-                    return @call(.{}, fn_ptr, new_args ++ args);
+                    return @call(.auto, fn_ptr, new_args ++ args);
                 } else {
                     var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
                     return await @asyncCall(&stack_frame, {}, fn_ptr, new_args ++ args);
                 }
             } else {
                 if (!is_async) {
-                    return @call(.{}, fn_ptr, args);
+                    return @call(.auto, fn_ptr, args);
                 } else {
                     var stack_frame: [stack_size]u8 align(std.Target.stack_align) = undefined;
                     return await @asyncCall(&stack_frame, {}, fn_ptr, args);
