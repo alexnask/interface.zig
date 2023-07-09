@@ -16,7 +16,7 @@ fn makeSelfPtr(ptr: anytype) *SelfType {
     const T = std.meta.Child(@TypeOf(ptr));
 
     if (@sizeOf(T) > 0) {
-        return @ptrCast(*SelfType, ptr);
+        return @ptrCast(ptr);
     } else {
         return undefined;
     }
@@ -24,7 +24,7 @@ fn makeSelfPtr(ptr: anytype) *SelfType {
 
 fn selfPtrAs(self: *SelfType, comptime T: type) *T {
     if (@sizeOf(T) > 0) {
-        return @alignCast(@alignOf(T), @ptrCast(*align(1) T, self));
+        return @alignCast(@ptrCast(self));
     } else {
         return undefined;
     }
@@ -32,7 +32,7 @@ fn selfPtrAs(self: *SelfType, comptime T: type) *T {
 
 fn constSelfPtrAs(self: *const SelfType, comptime T: type) *const T {
     if (@sizeOf(T) > 0) {
-        return @alignCast(@alignOf(T), @ptrCast(*align(1) const T, self));
+        return @alignCast(@ptrCast(self));
     } else {
         return undefined;
     }
@@ -113,7 +113,7 @@ pub const Storage = struct {
                     const slice = base[0..@sizeOf(AllocT)];
                     errdefer allocator.rawFree(slice, t_align_log2, @returnAddress());
 
-                    var ptr = @ptrCast(*AllocT, @alignCast(t_align, base));
+                    var ptr: *AllocT = @ptrCast(@alignCast(base));
                     ptr.* = obj;
 
                     return TInterface{
@@ -156,7 +156,7 @@ pub const Storage = struct {
                             .mem = undefined,
                         };
                         if (ImplSize > 0) {
-                            std.mem.copy(u8, self.mem[0..], @ptrCast([*]const u8, &value)[0..ImplSize]);
+                            std.mem.copy(u8, self.mem[0..], @as([*]const u8, @ptrCast(&value))[0..ImplSize]);
                         }
 
                         return TInterface{
