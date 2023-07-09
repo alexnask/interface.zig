@@ -1,4 +1,4 @@
-const interface = @import("interface.zig");
+const interface = @import("interface");
 const Interface = interface.Interface;
 const SelfType = interface.SelfType;
 

@@ -98,23 +98,30 @@ pub const Storage = struct {
     pub const Owning = struct {
         allocator: mem.Allocator,
         mem: []u8,
+        alignment_log2: u8,
 
         fn makeInit(comptime TInterface: type) type {
             return struct {
-                fn init(obj: anytype, allocator: std.mem.Allocator) !TInterface {
+                fn init(obj: anytype, allocator: std.mem.Allocator) error{OutOfMemory}!TInterface {
                     const AllocT = @TypeOf(obj);
 
-                    const base = try allocator.alignedAlloc(u8, @alignOf(AllocT), @sizeOf(AllocT));
-                    errdefer allocator.free(base);
+                    const t_align = @alignOf(AllocT);
+                    const t_align_log2 = std.math.log2(t_align);
 
-                    var ptr = @ptrCast(*AllocT, base.ptr);
+                    const base = allocator.rawAlloc(@sizeOf(AllocT), t_align_log2, @returnAddress()) orelse return error.OutOfMemory;
+
+                    const slice = base[0..@sizeOf(AllocT)];
+                    errdefer allocator.rawFree(slice, t_align_log2, @returnAddress());
+
+                    var ptr = @ptrCast(*AllocT, @alignCast(t_align, base));
                     ptr.* = obj;
 
                     return TInterface{
                         .vtable_ptr = &comptime makeVTable(TInterface.VTable, PtrChildOrSelf(AllocT)),
                         .storage = Owning{
                             .allocator = allocator,
-                            .mem = base,
+                            .mem = slice,
+                            .alignment_log2 = t_align_log2,
                         },
                     };
                 }
@@ -126,7 +133,7 @@ pub const Storage = struct {
         }
 
         pub fn deinit(self: Owning) void {
-            self.allocator.free(self.mem);
+            self.allocator.rawFree(self.mem, self.alignment_log2, @returnAddress());
         }
     };
 
